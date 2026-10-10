@@ -1,8 +1,7 @@
-// Configuración web pública de Firebase para PEKY LEGEND CLUB.
-// Proviene de Configuración del proyecto > Tus aplicaciones > App web.
-// NO colocar claves de cuenta de servicio ni credenciales privadas aquí.
+// PEKY LEGEND CLUB — Configuración web pública de Firebase.
+// Compatible con cloud.js y GitHub Pages. No contiene claves administrativas.
 export const firebaseConfig = {
-  apiKey: "AIzaSyCq0009x1LfCNZvSpMZ6vAu0XxO-1ElhiI",
+  apiKey: "AIzaSyCq0OO9x1LfCNZvSpMZ6vAuOXxO-1ElhiI",
   authDomain: "juegos-peky.firebaseapp.com",
   projectId: "juegos-peky",
   storageBucket: "juegos-peky.firebasestorage.app",
