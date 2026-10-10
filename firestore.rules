@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn(){return request.auth!=null;}
+  function mine(uid){return signedIn() && request.auth.uid==uid;}
+  function validProfile(){return request.resource.data.keys().hasOnly(['nickname','number','color','joinedAt','updatedAt']) && request.resource.data.nickname is string && request.resource.data.nickname.size()>=1 && request.resource.data.nickname.size()<=18 && request.resource.data.number is int && request.resource.data.number>=0 && request.resource.data.number<=99 && request.resource.data.color in ['green','blue','red','purple','gold','pink'];}
+  match /players/{uid} {
+   allow read: if true;
+   allow create,update: if mine(uid) && validProfile();
+   allow delete: if false;
+  }
+  match /rankings/{bucket}/entries/{uid} {
+   allow read: if true;
+   function validRun(){return request.resource.data.keys().hasOnly(['uid','mode','level','duration','target','score','rankValue','won','elapsed','lives','nickname','number','color','updatedAt']) && request.resource.data.uid==uid && request.resource.data.mode in ['basket','triples','slalom','race','swim','rescue','soccer','volley','cycle'] && request.resource.data.level in ['normal','pro','legend'] && request.resource.data.duration is int && request.resource.data.duration>=30 && request.resource.data.duration<=300 && request.resource.data.target is int && request.resource.data.target>=0 && request.resource.data.target<=300 && request.resource.data.score is number && request.resource.data.score>=0 && request.resource.data.score<=10000 && request.resource.data.rankValue is number && request.resource.data.rankValue>=-500 && request.resource.data.rankValue<=10000000 && request.resource.data.elapsed is number && request.resource.data.elapsed>=0 && request.resource.data.elapsed<=301 && request.resource.data.lives is int && request.resource.data.lives>=0 && request.resource.data.lives<=3 && request.resource.data.won is bool && request.resource.data.nickname is string && request.resource.data.nickname.size()>=1 && request.resource.data.nickname.size()<=18 && request.resource.data.number is int && request.resource.data.number>=0 && request.resource.data.number<=99 && request.resource.data.color in ['green','blue','red','purple','gold','pink'] && request.resource.data.updatedAt==request.time ;}
+   allow create: if mine(uid) && validRun();
+   allow update: if mine(uid) && validRun() && request.resource.data.rankValue >= resource.data.rankValue;
+   allow delete: if false;
+  }
+  match /{document=**}{allow read,write: if false;}
+ }
+}

@@ -1,0 +1,5 @@
+tools/backups/
+**/service-account*.json
+**/*admin-key*.json
+.env
+node_modules/
