@@ -35,7 +35,7 @@ const inviteValid=/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(inviteCode);
 let inviteJoinAttempted=false;
 const roomPath=code=>'ludoProRoomsV2/'+code;
 const NOW=()=>Date.now();
-const PEKY_VERSION='LUDO ONLINE 2026.10.10-R3';
+const PEKY_VERSION='LUDO ONLINE R4 · RESERVA ATÓMICA';
 // La misma interfaz debe mostrar la versión efectiva; ayuda a detectar JS antiguo en el móvil.
 function showVersion(){if($('ludoVersion'))$('ludoVersion').textContent=PEKY_VERSION;}
 const asPlayers=raw=>Array.isArray(raw)?raw.filter(Boolean):Object.keys(raw||{}).filter(x=>/^\d+$/.test(x)).sort((a,b)=>+a-+b).map(k=>raw[k]).filter(Boolean);
@@ -166,37 +166,50 @@ $('join').onclick=async()=>{
   }
   if(existing.status!=='waiting')throw Error('Sala '+code+' encontrada, pero está '+(existing.status==='active'?'EN JUEGO':'TERMINADA')+'. Pide una partida nueva.');
   if(existing.players.length>=existing.capacity)throw Error('Sala '+code+' encontrada pero está COMPLETA ('+existing.players.length+'/'+existing.capacity+').');
-  // La transacción es atómica. Evita que dos personas ocupen el mismo último asiento.
-  let failure='';
-  let result;
-  try {
-   result=await fns.runTransaction(ref,raw=>{
-    if(!raw){failure='La sala desapareció antes de entrar.';return;}
-    const players=asPlayers(raw.players);
-    if(players.some(p=>p.uid===uid))return raw;
-    if(raw.status!=='waiting'){failure='La sala ya empezó.';return;}
-    if(players.length>=raw.capacity){failure='La sala se llenó.';return;}
-    raw.players=players;
-    raw.players.push({uid,nickname:profile.nickname,color:players.length,pieces:[-1,-1,-1,-1]});
-    return raw;
-   },{applyLocally:false});
-  }catch(e){throw Error('La sala '+code+' SÍ existe ('+existing.players.length+'/'+existing.capacity+'), pero '+explainFirebaseError(e));}
-  if(!result.committed){
-   const {game:again}=await readRoom(code);
-   if(again?.players.some(p=>p.uid===uid)){
-    listenRoom(code);notify('✅ Tu cuenta ya aparece en '+code+'; conexión recuperada.');return;
+  // R4: reservar SOLO una plaza libre, no transaccionar toda la sala.
+  // Firebase puede invocar inicialmente el callback con null incluso si la sala remota existe.
+  // En R3 se devolvía undefined al ver null y la transacción se abortaba prematuramente.
+  // Aquí null es lo ESPERADO en /players/{asientoLibre}; la escritura atómica intenta ocuparlo.
+  let joined=false;
+  for(let attempt=0;attempt<4;attempt++){
+   const {game:latest}=attempt===0?{game:existing}:await readRoom(code);
+   if(!latest)throw Error('La sala '+code+' ya no existe en Firebase.');
+   if(latest.players.some(p=>p?.uid===uid)){joined=true;break;}
+   if(latest.status!=='waiting')throw Error('La sala '+code+' ya comenzó o terminó; no admite nuevos jugadores.');
+   if(latest.players.length>=latest.capacity)throw Error('La sala '+code+' SÍ está llena ('+latest.players.length+'/'+latest.capacity+').');
+   const seat=latest.players.length;
+   const seatRef=fns.ref(db,roomPath(code)+'/players/'+seat);
+   const player={uid,nickname:String(profile.nickname).slice(0,24),color:seat,pieces:[-1,-1,-1,-1]};
+   let result;
+   try{
+    result=await fns.runTransaction(seatRef,current=>{
+     // Si está libre, crear este jugador. Si otro cliente se adelantó, abortar sin pisarlo.
+     if(current===null)return player;
+     return undefined;
+    },{applyLocally:false});
+   }catch(e){
+    const {game:check}=await readRoom(code).catch(()=>({game:null}));
+    if(check?.players.some(p=>p?.uid===uid)){joined=true;break;}
+    throw Error('La sala '+code+' EXISTE ('+(check?.players.length??latest.players.length)+'/'+latest.capacity+'), pero no se pudo agregar tu cuenta: '+explainFirebaseError(e));
    }
-   throw Error(failure||('La sala '+code+' existe ('+(again?.players.length??'?')+'/'+(again?.capacity??'?')+') pero Firebase no confirmó tu plaza. Comprueba las reglas de escritura.'));
+   if(result.committed){joined=true;break;}
+   // Otro jugador pudo ganar el asiento. Consultar de nuevo y probar el siguiente libre.
   }
+  if(!joined){
+   const {game:again}=await readRoom(code);
+   if(!again?.players.some(p=>p?.uid===uid))throw Error('La sala '+code+' existe ('+(again?.players.length??'?')+'/'+(again?.capacity??'?')+'), pero no logramos reservar tu plaza después de varios intentos. Prueba de nuevo.');
+  }
+  const {game:confirmed}=await readRoom(code);
+  if(!confirmed?.players.some(p=>p?.uid===uid))throw Error('Firebase aún no confirma tu asiento. Espera unos segundos y pulsa UNIRSE otra vez.');
   listenRoom(code);
   if($('inviteBanner'))$('inviteBanner').hidden=true;
-  notify('✅ ENTRASTE A '+code+' · '+(existing.players.length+1)+'/'+existing.capacity+' jugadores. El anfitrión puede ver tu cuenta.');
+  notify('✅ ENTRASTE A '+code+' · '+confirmed.players.length+'/'+confirmed.capacity+' jugadores verificados en Firebase.');
  }catch(e){
   notify('⚠ '+explainFirebaseError(e));
   if(inviteValid&&$('inviteBanner')){const b=$('inviteBanner');b.hidden=false;b.textContent='⚠ No se pudo completar la entrada automática. Revisa el detalle debajo del botón UNIRSE y pulsa VERIFICAR SALA EN FIREBASE.';}
  }finally{btn.disabled=!online;}
 };
-$('shareRoom').onclick=async()=>{const code=$('roomCode').value.trim().toUpperCase();if(!/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(code)||!roomRef||!online){notify('Primero crea o entra en una sala online real.');return;}const invite=new URL('ludo.html',location.href);invite.searchParams.set('room',code);invite.searchParams.set('v','20261010-R3');const message=`🎲 ¡Te invito a Ludo Pro de PEKY LEGEND! Sala ${code}: ${invite.toString()}`;try{if(navigator.share){await navigator.share({title:'PEKY LUDO PRO',text:message,url:invite.toString()});}else if(navigator.clipboard){await navigator.clipboard.writeText(message);notify('✅ Invitación y enlace copiados. Envíalos por WhatsApp.');}else{notify('🔗 Copia: '+message);}}catch(e){if(e.name!=='AbortError')notify('Comparte este enlace: '+invite.toString());}};
+$('shareRoom').onclick=async()=>{const code=$('roomCode').value.trim().toUpperCase();if(!/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(code)||!roomRef||!online){notify('Primero crea o entra en una sala online real.');return;}const invite=new URL('ludo.html',location.href);invite.searchParams.set('room',code);invite.searchParams.set('v','20261010-R4-seat');const message=`🎲 ¡Te invito a Ludo Pro de PEKY LEGEND! Sala ${code}: ${invite.toString()}`;try{if(navigator.share){await navigator.share({title:'PEKY LUDO PRO',text:message,url:invite.toString()});}else if(navigator.clipboard){await navigator.clipboard.writeText(message);notify('✅ Invitación y enlace copiados. Envíalos por WhatsApp.');}else{notify('🔗 Copia: '+message);}}catch(e){if(e.name!=='AbortError')notify('Comparte este enlace: '+invite.toString());}};
 $('start').onclick=async()=>{try{if(!onlineReady()||!s||s.hostUid!==uid)throw Error('Solo el anfitrión puede iniciar la partida.');await transact(g=>{if(g.status!=='waiting'||g.players.length<2)throw Error('Se necesitan mínimo 2 personas reales.');g.status='active';g.turn=0;return g;});notify('🎲 ¡Partida online iniciada!');}catch(e){notify('⚠ '+e.message);}};
 $('copyCode').onclick=async()=>{const code=$('roomCode').value.trim();if(!code){notify('Todavía no hay un código.');return;}try{await navigator.clipboard.writeText(code);notify('✅ Copiado: '+code);}catch{$('roomCode').focus();$('roomCode').select();notify('Selecciona y copia el código manualmente.');}};
 $('roll').onclick=async()=>{if(rolling||transacting||!s)return;try{transacting=true;rollSound();const who=s.turn,face=crypto.getRandomValues(new Uint32Array(1))[0]%6+1;await transact(g=>{if(online&&g.players[g.turn]?.uid!==uid)throw Error('No es tu turno.');return rollLogic(g,who,face);});}catch(e){notify('⚠ '+e.message);}finally{transacting=false;drawSide();}};
