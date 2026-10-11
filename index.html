@@ -178,23 +178,47 @@ const $=id=>document.getElementById(id), cv=$('arena'),ctx=cv.getContext('2d',{a
 $('arenaWrap').appendChild($('toast'));
 $('toast').classList.add('feedback-below');
 // Pista original del usuario. WebAudio sigue reservado para efectos del juego.
-const TRACKS=['assets/chamame_peky_05_01.mp3','assets/chamame_peky_05_02.mp3','assets/chamame_peky_05_03.mp3','assets/chamame_peky_05_04.mp3'];
-let trackIndex=0;const bgTrack=new Audio(TRACKS[0]);bgTrack.loop=false;bgTrack.preload='metadata';
-bgTrack.addEventListener('ended',()=>{trackIndex=(trackIndex+1)%TRACKS.length;bgTrack.src=TRACKS[trackIndex];syncMp3()});
+// MUSIC R5: un único reproductor para el club y Ludo incrustado; rutas tolerantes a mayúsculas.
+const TRACK_NAMES=[1,2,3,4].map(i=>`chamame_peky_05_0${i}.mp3`);
+const TRACK_ROOTS=['assets/','Activos/','assets/Activos/'];
+let trackIndex=0, musicRootIndex=0, musicMissing=false, audioNotice='';
+let resumeMusicAt=0;
+try{const saved=JSON.parse(sessionStorage.getItem('peky_ludo_music_handoff')||'null'); if(saved){trackIndex=Math.max(0,Math.min(3,Number(saved.index)||0));resumeMusicAt=Math.max(0,Number(saved.time)||0);sessionStorage.removeItem('peky_ludo_music_handoff');}}catch{}
+const bgTrack=new Audio(TRACK_ROOTS[0]+TRACK_NAMES[trackIndex]);bgTrack.loop=false;bgTrack.preload='metadata';
+function setAudioNotice(msg){audioNotice=msg;let el=document.getElementById('pekyMusicAlert');if(!el){el=document.createElement('div');el.id='pekyMusicAlert';el.setAttribute('role','status');el.style.cssText='position:fixed;bottom:72px;left:12px;right:12px;max-width:570px;margin:auto;padding:11px 13px;border:2px solid #ecc979;border-radius:12px;background:#072c29;color:#ffe5a7;font-weight:700;font-size:13px;z-index:2147483100;display:none;box-shadow:0 3px 17px #0007';el.addEventListener('click',()=>{if(!musicMissing){state.music=true;store.set('music','on');activateMp3()}});document.body.append(el);}el.textContent=msg;el.style.display=msg?'block':'none';}
+function setMusicTrack(){musicRootIndex=0;musicMissing=false;bgTrack.src=TRACK_ROOTS[0]+TRACK_NAMES[trackIndex];}
+bgTrack.addEventListener('loadedmetadata',()=>{if(resumeMusicAt>0&&resumeMusicAt<bgTrack.duration){try{bgTrack.currentTime=resumeMusicAt}catch{}resumeMusicAt=0;}});
+bgTrack.addEventListener('canplay',()=>{musicMissing=false;setAudioNotice('');});
+bgTrack.addEventListener('error',()=>{if(++musicRootIndex<TRACK_ROOTS.length){bgTrack.src=TRACK_ROOTS[musicRootIndex]+TRACK_NAMES[trackIndex];if(trackActivated&&state.music)bgTrack.play().catch(()=>{});}else{musicMissing=true;setAudioNotice('🎵 No encuentro los MP3. Deben estar en la carpeta assets con el nombre chamame_peky_05_01.mp3, 02, 03 y 04.');}});
+bgTrack.addEventListener('ended',()=>{trackIndex=(trackIndex+1)%TRACK_NAMES.length;setMusicTrack();syncMp3()});
 // Ludo dentro del mismo documento: conserva el audio original del club.
 const ludoDock=$('ludoDock'),ludoFrame=$('ludoFrame');
-$('launchLudo').addEventListener('click',e=>{e.preventDefault();if($('entryGate')&&!$('entryGate').hidden)return;ludoDock.hidden=false;document.body.style.overflow='hidden';ludoFrame.src='ludo.html?v=20261010-R3';activateMp3();});
+$('launchLudo').addEventListener('click',e=>{e.preventDefault();if($('entryGate')&&!$('entryGate').hidden)return;ludoDock.hidden=false;document.body.style.overflow='hidden';ludoFrame.src='ludo.html?v=20261010-R5-music';activateMp3();});
 function closeLudoDock(){ludoDock.hidden=true;ludoFrame.src='about:blank';document.body.style.overflow='';}
 $('closeLudo').addEventListener('click',closeLudoDock);
 let trackActivated=false;
 function syncMp3(){
  bgTrack.volume=state.music?Math.max(0,Math.min(1,state.musicVolume)):0;
- if(!state.music){bgTrack.pause();return;}
- if(!trackActivated)return;
- if(state.phase==='paused'||state.phase==='popup'){bgTrack.pause();return;}
- const playPromise=bgTrack.play();if(playPromise&&playPromise.catch)playPromise.catch(()=>{});
+ if(!state.music){bgTrack.pause();setAudioNotice('');return;}
+ if(!trackActivated||musicMissing)return;
+ const inLudo=(ludoOverlay&&ludoOverlay.isConnected)||!ludoDock.hidden;
+ if(!inLudo&&(state.phase==='paused'||state.phase==='popup')){bgTrack.pause();return;}
+ const playPromise=bgTrack.play();if(playPromise&&playPromise.catch)playPromise.catch(()=>{if(inLudo)setAudioNotice('🎵 Toca «MÚSICA» en la barra de Ludo para activar el chamamé.');});
 }
 function activateMp3(){trackActivated=true;syncMp3()}
+function toggleLudoAudio(){
+ if(state.music&&!bgTrack.paused){state.music=false;store.set('music','off');}
+ else {state.music=true;store.set('music','on');musicMissing=false;if(bgTrack.error&&musicRootIndex>=TRACK_ROOTS.length)setMusicTrack();}
+ activateMp3();updateButtons();
+}
+const dockAudioBtn=document.createElement('button');dockAudioBtn.type='button';dockAudioBtn.textContent='♫ MÚSICA';dockAudioBtn.title='Activar, reanudar o pausar el chamamé';dockAudioBtn.style.cssText='background:#f1d17d;color:#0b2b28;border:0;border-radius:8px;padding:8px 11px;font-weight:900;cursor:pointer;margin-left:6px';dockAudioBtn.addEventListener('click',toggleLudoAudio);document.querySelector('.ludo-dock-header').insertBefore(dockAudioBtn,$('closeLudo'));
+window.addEventListener('message',ev=>{if(ev.origin!==location.origin)return;
+ const m=ev.data;
+ if(m==='PEKY_AUDIO_TOGGLE')toggleLudoAudio();
+ if(m==='PEKY_AUDIO_PLAY'){state.music=true;store.set('music','on');activateMp3();}
+ if(m==='PEKY_AUDIO_REQUEST_STATE'||m==='PEKY_AUDIO_TOGGLE'||m==='PEKY_AUDIO_PLAY')try{ev.source?.postMessage({type:'PEKY_AUDIO_STATE',on:state.music,volume:state.musicVolume,playing:!bgTrack.paused},ev.origin);}catch{}
+ if(m?.type==='PEKY_AUDIO_VOLUME'){state.musicVolume=Math.max(0,Math.min(1,Number(m.volume)||0));store.set('musicvol',state.musicVolume);syncMp3();}
+});
 // El Ludo se abre en una capa a pantalla completa sin cerrar el club:
 // así la música MP3 sigue sonando (y no arranca otra pista encima).
 let ludoOverlay=null;
@@ -207,8 +231,9 @@ document.addEventListener('click',ev=>{const link=ev.target.closest?.('a[href="l
  const layer=document.createElement('div');layer.id='pekyLudoOverlay';layer.style.cssText='position:fixed;inset:0;z-index:2147483000;background:#041c1b;display:flex;flex-direction:column;';
  const bar=document.createElement('div');bar.style.cssText='height:52px;flex:none;background:#062a25;color:#ffe29a;display:flex;align-items:center;justify-content:space-between;padding:6px 14px;border-bottom:2px solid #e9c264';
  const title=document.createElement('b');title.textContent='🎲 LUDO PRO · PEKY LEGEND';bar.append(title);
- const close=document.createElement('button');close.type='button';close.textContent='✕ Cerrar Ludo';close.style.cssText='background:#f7da91;color:#17382d;border:0;border-radius:9px;font-weight:800;padding:10px;cursor:pointer';close.onclick=closePekyLudo;bar.append(close);
- const frame=document.createElement('iframe');frame.src='ludo.html?embedded=1&v=20261010-R3';frame.title='Ludo Pro';frame.style.cssText='border:0;width:100%;flex:1;background:#062a25';frame.allow='autoplay';
+ const sound=document.createElement('button');sound.type='button';sound.textContent='♫ MÚSICA';sound.style.cssText='background:#18483e;color:#ffe59d;border:1px solid #e5c46e;border-radius:9px;font-weight:800;padding:10px;cursor:pointer;margin-left:auto';sound.title='Activar / pausar chamamé';sound.onclick=toggleLudoAudio;bar.append(sound);
+ const close=document.createElement('button');close.type='button';close.textContent='✕ Cerrar Ludo';close.style.cssText='background:#f7da91;color:#17382d;border:0;border-radius:9px;font-weight:800;padding:10px;cursor:pointer;margin-left:8px';close.onclick=closePekyLudo;bar.append(close);
+ const frame=document.createElement('iframe');frame.src='ludo.html?embedded=1&v=20261010-R5-music';frame.title='Ludo Pro';frame.style.cssText='border:0;width:100%;flex:1;background:#062a25';frame.allow='autoplay';
  layer.append(bar,frame);document.body.append(layer);ludoOverlay=layer;
 },true);
 bgTrack.addEventListener('error',()=>{if(!window._pekySoundWarned){window._pekySoundWarned=true;console.warn('La música MP3 no se pudo cargar. Abre el ZIP completo con su carpeta assets.')}});
@@ -796,7 +821,7 @@ function entryEnter(kind){
     requestAnimationFrame(()=>{
       ludoDock.hidden=false;
       document.body.style.overflow='hidden';
-      ludoFrame.src='ludo.html?v=20261010-R3&room='+encodeURIComponent(pendingLudoInvite);
+      ludoFrame.src='ludo.html?room='+encodeURIComponent(pendingLudoInvite)+'&v=20261010-R5-music';activateMp3();
       // Retiramos el código de la barra solo después de abrir el tablero.
       try{history.replaceState(null,'',location.pathname);}catch(e){}
     });
