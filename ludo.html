@@ -1,5 +1,5 @@
 <!doctype html><html lang="es"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#092a2b"><title>PEKY LEGEND · Ludo Clásico Pro</title><link rel="stylesheet" href="ludo.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#092a2b"><title>PEKY LEGEND · Ludo Clásico Pro</title><link rel="stylesheet" href="ludo.css?v=20261010-R3">
 </head><body>
 <header class="topbar">
  <div class="brand"><span class="brand-icon">🎲</span><div><div class="brand-name">PEKY <em>LEGEND</em></div><div class="brand-sub">LUDO CLÁSICO PRO · TABLERO TRADICIONAL</div></div></div>
@@ -24,10 +24,11 @@
     <div class="two-fields"><label class="field">Jugadores<select id="count"><option value="2">2 jugadores</option><option value="3">3 jugadores</option><option value="4" selected>4 jugadores</option></select></label><label class="field">Tu apodo<input id="nickname" maxlength="18" value="Peky" autocomplete="off" aria-label="Tu apodo"></label></div>
     <div class="action-grid"><button id="create" type="button">＋ CREAR PARTIDA</button><button id="join" type="button" class="btn-secondary">↳ UNIRSE</button></div>
     <label class="field code-field">Código de sala<div class="inline"><input id="roomCode" placeholder="PEKYXXXXX" maxlength="12" autocomplete="off"><button id="copyCode" class="btn-secondary" type="button">Copiar</button></div></label>
+    <button id="verifyRoom" type="button" class="btn-secondary wide" style="margin-top:10px">🔎 VERIFICAR SALA EN FIREBASE</button>
     <button id="shareRoom" type="button" class="btn-secondary wide">🔗 Compartir invitación</button><button id="start" type="button" class="wide hidden">▶ COMENZAR CON LOS PRESENTES</button>
     <div id="onlineHint" class="online-hint">El juego local funciona sin conexión. Para online necesitas Firebase Realtime Database configurado.</div>
     <div id="roomActionStatus" class="room-info" hidden role="status" aria-live="polite"></div>
-    <div id="roomInfo" class="room-info"></div>
+    <div id="roomInfo" class="room-info"></div><div id="ludoVersion" class="hint" style="font-size:11px;margin-top:8px;opacity:.8" aria-label="Versión cargada"></div>
    </section>
    <section class="module turn-module"><div class="module-title"><h2>👥 Jugadores</h2><span class="smalltag">EN PARTIDA</span></div><div id="players" class="roster"></div><div class="dice-area"><div class="dice-glow"><div id="dice" aria-label="Dado de seis caras">🎲</div></div><div id="diceCaption">Crea una partida para lanzar</div><button type="button" id="roll" class="roll" disabled>🎲 LANZAR DADO</button><button id="cancel" class="btn-link" type="button" disabled>Pasar turno</button></div></section>
    <section class="module"><div class="module-title"><h2>🏅 Ranking de Ludo</h2><span class="smalltag">LOCAL</span></div><div id="ranking"></div><p class="hint">Partidas locales guardadas en este dispositivo. El ranking online oficial necesita validación del resultado en servidor.</p></section>
@@ -46,4 +47,4 @@ try {
  if(!valid&&!sessionStorage.getItem('peky_club_access')&&!params.has('preview')) location.replace('index.html');
 } catch(e) {console.warn('Sesión local no disponible:',e);}
 </script>
-<script type="module" src="ludo.js"></script></body></html>
+<script type="module" src="ludo.js?v=20261010-R3"></script></body></html>

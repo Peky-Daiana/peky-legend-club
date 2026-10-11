@@ -35,6 +35,16 @@ const inviteValid=/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(inviteCode);
 let inviteJoinAttempted=false;
 const roomPath=code=>'ludoProRoomsV2/'+code;
 const NOW=()=>Date.now();
+const PEKY_VERSION='LUDO ONLINE 2026.10.10-R3';
+// La misma interfaz debe mostrar la versión efectiva; ayuda a detectar JS antiguo en el móvil.
+function showVersion(){if($('ludoVersion'))$('ludoVersion').textContent=PEKY_VERSION;}
+const asPlayers=raw=>Array.isArray(raw)?raw.filter(Boolean):Object.keys(raw||{}).filter(x=>/^\d+$/.test(x)).sort((a,b)=>+a-+b).map(k=>raw[k]).filter(Boolean);
+const explainFirebaseError=e=>{
+ const m=String(e?.message||e||'');
+ if(/permission[_ -]?denied|PERMISSION_DENIED|insufficient permissions/i.test(m))return 'Firebase rechazó añadir el jugador por permisos de Realtime Database. La sala puede existir; hay que revisar la regla .write de ludoProRoomsV2. ('+m+')';
+ if(/network|disconnected|offline|unavailable|timeout/i.test(m))return 'Sin conexión estable a Firebase; revisa Internet en este dispositivo y vuelve a intentar. ('+m+')';
+ return m;
+};
 // 52 casillas reales del recorrido clásico 15×15, en sentido horario.
 const TRACK=[[6,1],[6,0],[7,0],[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[9,6],[10,6],[11,6],[12,6],[13,6],[14,6],[14,7],[14,8],[13,8],[12,8],[11,8],[10,8],[9,8],[8,9],[8,10],[8,11],[8,12],[8,13],[8,14],[7,14],[6,14],[6,13],[6,12],[6,11],[6,10],[6,9],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8],[0,7],[0,6],[1,6],[2,6],[3,6],[4,6],[5,6],[6,5],[6,4],[6,3],[6,2]];
 const LANES=[[[7,2],[7,3],[7,4],[7,5],[7,6]],[[12,7],[11,7],[10,7],[9,7],[8,7]],[[7,12],[7,11],[7,10],[7,9],[7,8]],[[2,7],[3,7],[4,7],[5,7],[6,7]]];
@@ -100,56 +110,93 @@ const app=getApps().length?getApp():initializeApp(firebaseConfig),auth=getAuth(a
 if(URL){db=getDatabase(app,URL);fns={ref,onValue,runTransaction,get};}
 const store=getFirestore(app);onAuthStateChanged(auth,async user=>{authReady=true;uid=user?.uid||null;profile=null;if(user){try{const snap=await getDoc(doc(store,'players',user.uid));profile=snap.exists()?snap.data():null;if(profile?.nickname&&!s)$('nickname').value=profile.nickname;}catch(err){console.warn('No se pudo leer el perfil',err);}}hint();drawSide();offerInvite();});}catch(e){authReady=true;hint();offerInvite();notify('⚠ No se pudo iniciar Firebase: '+(e?.message||e));console.warn('No se pudo conectar Firebase:',e.message);}}
 function leaveRoom(){if(unsub){unsub();unsub=null;}roomRef=null;roomCode='';s=null;lastRollId=null;rolling=false;shownDie=0;animationToken++;boardDraw();}
-function listenRoom(code){if(unsub)unsub();roomCode=code;roomRef=fns.ref(db,roomPath(code));unsub=fns.onValue(roomRef,snap=>{const previous=s;const value=snap.val();if(!value){notify('Esta sala no existe o fue cerrada.');leaveRoom();return;}update(previous,value);},e=>notify('⚠ Error al escuchar la sala: '+e.message));}
+function listenRoom(code){if(unsub)unsub();roomCode=code;roomRef=fns.ref(db,roomPath(code));unsub=fns.onValue(roomRef,snap=>{const previous=s;const value=snap.val();if(value?.players&&!Array.isArray(value.players))value.players=asPlayers(value.players);if(!value){notify('Esta sala no existe o fue cerrada.');leaveRoom();return;}update(previous,value);},e=>notify('⚠ Error al escuchar la sala: '+e.message));}
 async function transact(fn){if(!online){if(!s)throw Error('Primero crea una partida.');const prev=structuredClone(s);update(prev,fn(structuredClone(s)));return;}if(!onlineReady()||!roomRef)throw Error('Primero conecta una sala real con tu usuario.');const result=await fns.runTransaction(roomRef,current=>{if(!current)return;try{return fn(current);}catch{return;}},{applyLocally:false});if(!result.committed)throw Error('Firebase rechazó la operación. Revisa turno, reglas y conexión.');}
 function codeGenerate(){return 'PEKY'+Array.from(crypto.getRandomValues(new Uint8Array(5)),n=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[n%32]).join('');}
-function syncModeTabs(){ $('tabLocal')?.classList.toggle('selected', !online); $('tabOnline')?.classList.toggle('selected',online);$('roomCode').disabled=!online;$('copyCode').disabled=!online;$('shareRoom').disabled=!online;$('join').disabled=!online; }
+function syncModeTabs(){ $('tabLocal')?.classList.toggle('selected', !online); $('tabOnline')?.classList.toggle('selected',online);$('roomCode').disabled=!online;$('copyCode').disabled=!online;$('shareRoom').disabled=!online;$('join').disabled=!online;$('verifyRoom').disabled=!online; }
 $('mode').onchange=()=>{online=$('mode').value==='online';leaveRoom();hint();syncModeTabs();notify(online?'Modo online: crea una sala real o introduce un código.':'Modo local: todos juegan desde este equipo.');};
 $('tabLocal').onclick=()=>{$('mode').value='local';$('mode').onchange();};
 $('tabOnline').onclick=()=>{$('mode').value='online';$('mode').onchange();};
 $('create').onclick=async()=>{online=$('mode').value==='online';const n=Number($('count').value),name=$('nickname').value.trim().slice(0,18)||'Atleta';try{if(!online){leaveRoom();update(null,newState(n,name));notify(`Partida local creada para ${n} jugadores. ¡A jugar!`);return;}if(!onlineReady()){hint();notify('No se pudo crear sala: primero activa Realtime Database y entra con tu cuenta de jugador.');return;}
 let game=newState(n,profile.nickname,true),code,created=false;for(let attempt=0;attempt<4&&!created;attempt++){code=codeGenerate();game.roomCode=code;const ref=fns.ref(db,roomPath(code));let result=await fns.runTransaction(ref,existing=>existing?undefined:game,{applyLocally:false});created=result.committed;}if(!created)throw Error('No se pudo reservar un código único. Intenta otra vez.');$('roomCode').value=code;listenRoom(code);notify(`✅ Sala REAL ${code} creada. Comparte el código. Solo tú estás conectado: espera que tus amigos se unan.`);}catch(e){notify('⚠ '+e.message);}};
-$('join').onclick=async()=>{
-  online=$('mode').value==='online';const btn=$('join');
-  try{
-    if(!online)throw Error('Selecciona ONLINE para unirte a una sala.');
-    if(!authReady)throw Error('Firebase está cargando tu cuenta; espera unos segundos.');
-    if(!uid)throw Error('Inicia sesión con una cuenta propia desde el club para unirte.');
-    if(!profile?.nickname)throw Error('Tu cuenta necesita un personaje registrado; complétalo en el club.');
-    if(!db||!fns)throw Error('La conexión de Realtime Database no está configurada.');
-    const code=$('roomCode').value.trim().toUpperCase();
-    if(!/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(code))throw Error('El código debe empezar por PEKY y contener cinco caracteres adicionales.');
-    btn.disabled=true;
-    notify(`⌛ Buscando sala ${code}…`);
-    const ref=fns.ref(db,roomPath(code)),snap=await fns.get(ref);
-    if(!snap.exists())throw Error(`La sala ${code} no existe. Confirma que el anfitrión la creó y sigue abierta.`);
-    const existing=snap.val();
-    if(existing.players?.some(p=>p?.uid===uid)){
-      listenRoom(code);
-      notify(existing.hostUid===uid?'ℹ Esta cuenta creó la sala. Para tener un segundo jugador, entra desde OTRA CUENTA en el otro celular.':'✅ Volviste a tu asiento en esta sala con tu cuenta.');
-      if($('inviteBanner'))$('inviteBanner').hidden=true;
-      return;
-    }
-    if(existing.status!=='waiting')throw Error('La partida ya comenzó o terminó; pide al anfitrión otra sala.');
-    if(existing.players?.length>=existing.capacity)throw Error('La sala está llena.');
-    const result=await fns.runTransaction(ref,game=>{
-      if(!game||game.status!=='waiting'||!Array.isArray(game.players))return;
-      if(game.players.some(p=>p.uid===uid))return game;
-      if(game.players.length>=game.capacity)return;
-      game.players.push({uid,nickname:profile.nickname,color:game.players.length,pieces:[-1,-1,-1,-1]});
-      return game;
-    },{applyLocally:false});
-    if(!result.committed)throw Error('No pudimos reservar tu plaza. Puede estar llena o Firebase rechazó el cambio.');
-    listenRoom(code);
-    if($('inviteBanner'))$('inviteBanner').hidden=true;
-    notify(`✅ Ya estás en la sala ${code}. Espera que el anfitrión pulse COMENZAR.`);
-  }catch(e){
-    const msg=String(e?.message||e);
-    notify('⚠ '+(/permission_denied|permission.denied/i.test(msg)?'Firebase no permitió unirte. Comprueba que publicaste las reglas de Realtime Database y que estás registrado.':msg));
-    if(inviteValid&&$('inviteBanner'))$('inviteBanner').hidden=false;
-  }finally{btn.disabled=!online;}
+async function readRoom(code){
+  // Una lectura real de la misma ruta que utiliza CREAR sala.
+  const path=roomPath(code),ref=fns.ref(db,path);
+  let snap;
+  try{snap=await fns.get(ref);}catch(e){throw Error('No se pudo consultar Firebase en '+path+': '+explainFirebaseError(e));}
+  if(!snap.exists())return {ref,game:null,path};
+  const game=snap.val();
+  game.players=asPlayers(game.players);
+  return {ref,game,path};
+}
+function validateCode(){
+ const code=$('roomCode').value.trim().toUpperCase();
+ $('roomCode').value=code;
+ if(!/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(code))throw Error('Código inválido. Usa las 9 letras/números exactos del anfitrión (PEKY + 5 caracteres).');
+ return code;
+}
+$('verifyRoom').onclick=async()=>{
+ const btn=$('verifyRoom');
+ try{
+  if(!onlineReady())throw Error('Primero inicia sesión con tu cuenta registrada y comprueba que Firebase esté conectado.');
+  const code=validateCode();btn.disabled=true;
+  notify('⌛ Comprobando en Firebase la sala '+code+'...');
+  const {game,path}=await readRoom(code);
+  if(!game){notify('⚠ Firebase no encontró '+code+' en '+path+'. Verifica el código con el PC; una sala de otro código no sirve.');return;}
+  notify('✅ CONFIRMADO EN FIREBASE: '+code+' · '+game.players.length+'/'+game.capacity+' jugadores · Estado: '+(game.status==='waiting'?'ESPERANDO':game.status==='active'?'EN JUEGO':'FINALIZADA')+'. '+(game.status==='waiting'?'Ahora pulsa UNIRSE.':'Pide al anfitrión una sala nueva si ya empezó.'));
+ }catch(e){notify('⚠ '+explainFirebaseError(e));}finally{btn.disabled=!online;}
 };
-$('shareRoom').onclick=async()=>{const code=$('roomCode').value.trim().toUpperCase();if(!/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(code)||!roomRef||!online){notify('Primero crea o entra en una sala online real.');return;}const invite=new URL('ludo.html',location.href);invite.searchParams.set('room',code);const message=`🎲 ¡Te invito a Ludo Pro de PEKY LEGEND! Sala ${code}: ${invite.toString()}`;try{if(navigator.share){await navigator.share({title:'PEKY LUDO PRO',text:message,url:invite.toString()});}else if(navigator.clipboard){await navigator.clipboard.writeText(message);notify('✅ Invitación y enlace copiados. Envíalos por WhatsApp.');}else{notify('🔗 Copia: '+message);}}catch(e){if(e.name!=='AbortError')notify('Comparte este enlace: '+invite.toString());}};
+$('join').onclick=async()=>{
+ online=$('mode').value==='online';const btn=$('join');
+ try{
+  if(!online)throw Error('Selecciona ONLINE para unirte a una sala.');
+  if(!authReady)throw Error('Firebase sigue cargando tu cuenta. Espera unos segundos.');
+  if(!uid)throw Error('Inicia sesión en el club con una cuenta propia para participar.');
+  if(!profile?.nickname)throw Error('Primero crea tu personaje registrado desde el club.');
+  if(!db||!fns)throw Error('Falta la conexión Realtime Database en ludo-settings.js.');
+  const code=validateCode();btn.disabled=true;
+  notify('⌛ Buscando la sala '+code+' en Firebase...');
+  const {ref,game:existing,path}=await readRoom(code);
+  if(!existing)throw Error('Firebase no encontró la sala '+code+' en '+path+'. Compara con el código de la sala ACTUAL del anfitrión.');
+  if(existing.players.some(p=>p?.uid===uid)){
+   listenRoom(code);
+   notify(existing.hostUid===uid?'ℹ Ya estás dentro como ANFITRIÓN de '+code+'. Para un segundo jugador usa otra cuenta Firebase.':'✅ Ya ocupas un asiento en '+code+' con esta cuenta; te reconecté.');
+   if($('inviteBanner'))$('inviteBanner').hidden=true;
+   return;
+  }
+  if(existing.status!=='waiting')throw Error('Sala '+code+' encontrada, pero está '+(existing.status==='active'?'EN JUEGO':'TERMINADA')+'. Pide una partida nueva.');
+  if(existing.players.length>=existing.capacity)throw Error('Sala '+code+' encontrada pero está COMPLETA ('+existing.players.length+'/'+existing.capacity+').');
+  // La transacción es atómica. Evita que dos personas ocupen el mismo último asiento.
+  let failure='';
+  let result;
+  try {
+   result=await fns.runTransaction(ref,raw=>{
+    if(!raw){failure='La sala desapareció antes de entrar.';return;}
+    const players=asPlayers(raw.players);
+    if(players.some(p=>p.uid===uid))return raw;
+    if(raw.status!=='waiting'){failure='La sala ya empezó.';return;}
+    if(players.length>=raw.capacity){failure='La sala se llenó.';return;}
+    raw.players=players;
+    raw.players.push({uid,nickname:profile.nickname,color:players.length,pieces:[-1,-1,-1,-1]});
+    return raw;
+   },{applyLocally:false});
+  }catch(e){throw Error('La sala '+code+' SÍ existe ('+existing.players.length+'/'+existing.capacity+'), pero '+explainFirebaseError(e));}
+  if(!result.committed){
+   const {game:again}=await readRoom(code);
+   if(again?.players.some(p=>p.uid===uid)){
+    listenRoom(code);notify('✅ Tu cuenta ya aparece en '+code+'; conexión recuperada.');return;
+   }
+   throw Error(failure||('La sala '+code+' existe ('+(again?.players.length??'?')+'/'+(again?.capacity??'?')+') pero Firebase no confirmó tu plaza. Comprueba las reglas de escritura.'));
+  }
+  listenRoom(code);
+  if($('inviteBanner'))$('inviteBanner').hidden=true;
+  notify('✅ ENTRASTE A '+code+' · '+(existing.players.length+1)+'/'+existing.capacity+' jugadores. El anfitrión puede ver tu cuenta.');
+ }catch(e){
+  notify('⚠ '+explainFirebaseError(e));
+  if(inviteValid&&$('inviteBanner')){const b=$('inviteBanner');b.hidden=false;b.textContent='⚠ No se pudo completar la entrada automática. Revisa el detalle debajo del botón UNIRSE y pulsa VERIFICAR SALA EN FIREBASE.';}
+ }finally{btn.disabled=!online;}
+};
+$('shareRoom').onclick=async()=>{const code=$('roomCode').value.trim().toUpperCase();if(!/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(code)||!roomRef||!online){notify('Primero crea o entra en una sala online real.');return;}const invite=new URL('ludo.html',location.href);invite.searchParams.set('room',code);invite.searchParams.set('v','20261010-R3');const message=`🎲 ¡Te invito a Ludo Pro de PEKY LEGEND! Sala ${code}: ${invite.toString()}`;try{if(navigator.share){await navigator.share({title:'PEKY LUDO PRO',text:message,url:invite.toString()});}else if(navigator.clipboard){await navigator.clipboard.writeText(message);notify('✅ Invitación y enlace copiados. Envíalos por WhatsApp.');}else{notify('🔗 Copia: '+message);}}catch(e){if(e.name!=='AbortError')notify('Comparte este enlace: '+invite.toString());}};
 $('start').onclick=async()=>{try{if(!onlineReady()||!s||s.hostUid!==uid)throw Error('Solo el anfitrión puede iniciar la partida.');await transact(g=>{if(g.status!=='waiting'||g.players.length<2)throw Error('Se necesitan mínimo 2 personas reales.');g.status='active';g.turn=0;return g;});notify('🎲 ¡Partida online iniciada!');}catch(e){notify('⚠ '+e.message);}};
 $('copyCode').onclick=async()=>{const code=$('roomCode').value.trim();if(!code){notify('Todavía no hay un código.');return;}try{await navigator.clipboard.writeText(code);notify('✅ Copiado: '+code);}catch{$('roomCode').focus();$('roomCode').select();notify('Selecciona y copia el código manualmente.');}};
 $('roll').onclick=async()=>{if(rolling||transacting||!s)return;try{transacting=true;rollSound();const who=s.turn,face=crypto.getRandomValues(new Uint32Array(1))[0]%6+1;await transact(g=>{if(online&&g.players[g.turn]?.uid!==uid)throw Error('No es tu turno.');return rollLogic(g,who,face);});}catch(e){notify('⚠ '+e.message);}finally{transacting=false;drawSide();}};
@@ -159,5 +206,5 @@ $('board').addEventListener('click',e=>pickPiece(e.target.closest('[data-piece]'
 $('board').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('[data-piece]');if(g){e.preventDefault();pickPiece(g);}}});
 $('skipPenalty').onclick=nextPenalty;$('randomPenalty').onclick=()=>showPenalty('Reto de muestra');
 try { const playerData=JSON.parse(localStorage.getItem('club_player')||'null');if(playerData?.nickname)$('nickname').value=String(playerData.nickname).slice(0,18); }catch{}
-renderRanking();boardDraw();hint();syncModeTabs();initFirebase();
+renderRanking();boardDraw();hint();syncModeTabs();showVersion();initFirebase();
 if(inviteValid){$('roomCode').value=inviteCode;$('mode').value='online';$('mode').onchange();notify('🔗 Invitación '+inviteCode+' recibida. Comprobando tu cuenta para unirte…');offerInvite();}
