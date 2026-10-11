@@ -771,6 +771,9 @@ window.addEventListener('peky-cloud-state',(event)=>{const d=event.detail||{};if
 
 // PORTADA DE ACCESO: ninguna marca local da derecho a omitirla.
 let entryGuest=false,entryAccount=false,entryBusy=false,entryExitInProgress=false,entryProfileLookupFailed=false;
+const pendingLudoInvite=(new URLSearchParams(location.search).get('ludoInvite')||'').toUpperCase();
+const hasPendingLudoInvite=/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(pendingLudoInvite);
+let pendingLudoOpened=false;
 window.PEKY_GUEST_ACTIVE=false;
 function entryStatus(txt){$('entryFeedback').textContent=txt||'';}
 function entryShow(stage){
@@ -780,7 +783,7 @@ function entryShow(stage){
     $('entryNick').value=entryGuest?(store.get('club_player_ready')==='1'?PLAYER.nickname:''):'';
     $('entryAccountMode').textContent=entryGuest?'🎮 Invitado: sin ranking ni registros online. Puedes volver al inicio cuando quieras.':'🔒 Cuenta verificada: crea tu apodo definitivo para competir en el ranking.';
     entryStatus('');
-  }else{entryStatus('Inicia sesión o elige invitado para continuar.');}
+  }else{entryStatus(hasPendingLudoInvite?'🎲 Invitación Ludo '+pendingLudoInvite+': inicia sesión o crea tu cuenta; regresarás a la sala.':'Inicia sesión o elige invitado para continuar.');}
 }
 function entryEnter(kind){
   entryAccount=kind==='account';entryGuest=kind==='guest';window.PEKY_GUEST_ACTIVE=entryGuest;
@@ -788,6 +791,16 @@ function entryEnter(kind){
   $('entryGate').hidden=true;entryStatus('');
   if(state.phase!=='playing'){state.phase='menu';intro();setPhase('menu');}
   activateMp3();
+  if(kind==='account'&&hasPendingLudoInvite&&!pendingLudoOpened){
+    pendingLudoOpened=true;
+    requestAnimationFrame(()=>{
+      ludoDock.hidden=false;
+      document.body.style.overflow='hidden';
+      ludoFrame.src='ludo.html?room='+encodeURIComponent(pendingLudoInvite);
+      // Retiramos el código de la barra solo después de abrir el tablero.
+      try{history.replaceState(null,'',location.pathname);}catch(e){}
+    });
+  }
 }
 function entryCloudChanged(d){
   if(entryExitInProgress)return;
@@ -812,7 +825,7 @@ async function entryExit(){
 }
 function entryData(){return normalizedPlayer({nickname:$('entryNick').value,number:$('entryNumber').value,color:$('entryColor').value,gender:$('entryGender').value,skin:$('entrySkin').value,hair:$('entryHair').value});}
 $('exitClub').addEventListener('click',entryExit);
-$('entryGuest').addEventListener('click',()=>{entryGuest=true;entryAccount=false;entryProfileLookupFailed=false;entryShow('creator');});
+$('entryGuest').addEventListener('click',()=>{if(hasPendingLudoInvite){entryStatus('🔐 Para entrar a la sala online '+pendingLudoInvite+' necesitas una cuenta registrada. Inicia sesión o crea una.');return;}entryGuest=true;entryAccount=false;entryProfileLookupFailed=false;entryShow('creator');});
 $('entryBack').addEventListener('click',async()=>{if(entryGuest){entryGuest=false;entryShow('login')}else{await entryExit()}});
 $('entryRetryProfile').addEventListener('click',async()=>{
  if(entryBusy)return;const cloud=window.PEKY_CLOUD;if(!cloud?.uid){entryStatus('Inicia sesión para recuperar tu perfil.');return;}

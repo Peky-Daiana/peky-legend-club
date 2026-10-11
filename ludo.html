@@ -7,6 +7,7 @@
 </header>
 <main class="shell">
  <div class="intro"><div><span class="eyebrow">EL CLÁSICO DE LOS AMIGOS</span><h1>¡A rodar los dados!</h1><p>Cuatro casas, cuatro fichas y una corona. Juega en un dispositivo o entra a una sala con tus amigos.</p></div><div class="decor-dice" aria-hidden="true">⚄ ⚂</div></div>
+ <div id="inviteBanner" class="online-hint" hidden role="status" aria-live="polite" style="border:2px solid #f5cf75;color:#fff0b6;margin:0 0 12px;padding:15px;font-size:14px"></div>
  <div class="game-grid">
   <section class="board-panel" aria-label="Tablero Ludo">
    <div class="panel-top"><span>🏁 TABLERO CLÁSICO 15 × 15</span><span class="board-status" id="boardStatus">LISTO PARA JUGAR</span></div>
@@ -25,6 +26,7 @@
     <label class="field code-field">Código de sala<div class="inline"><input id="roomCode" placeholder="PEKYXXXXX" maxlength="12" autocomplete="off"><button id="copyCode" class="btn-secondary" type="button">Copiar</button></div></label>
     <button id="shareRoom" type="button" class="btn-secondary wide">🔗 Compartir invitación</button><button id="start" type="button" class="wide hidden">▶ COMENZAR CON LOS PRESENTES</button>
     <div id="onlineHint" class="online-hint">El juego local funciona sin conexión. Para online necesitas Firebase Realtime Database configurado.</div>
+    <div id="roomActionStatus" class="room-info" hidden role="status" aria-live="polite"></div>
     <div id="roomInfo" class="room-info"></div>
    </section>
    <section class="module turn-module"><div class="module-title"><h2>👥 Jugadores</h2><span class="smalltag">EN PARTIDA</span></div><div id="players" class="roster"></div><div class="dice-area"><div class="dice-glow"><div id="dice" aria-label="Dado de seis caras">🎲</div></div><div id="diceCaption">Crea una partida para lanzar</div><button type="button" id="roll" class="roll" disabled>🎲 LANZAR DADO</button><button id="cancel" class="btn-link" type="button" disabled>Pasar turno</button></div></section>
@@ -34,5 +36,14 @@
  </div>
  <p class="footer">PEKY LEGEND CLUB · LUDO CLÁSICO PRO · Firebase Spark · Compatible con touch y teclado</p>
 </main>
-<script>try{if(!sessionStorage.getItem('peky_club_access')&&!new URLSearchParams(location.search).has('preview'))location.replace('index.html');}catch(e){}</script>
+<script>
+// Invitados por enlace: se permite abrir el tablero; Firebase seguirá exigiendo cuenta registrada para conectarse.
+// No se pierde ?room=CODIGO por redireccionar silenciosamente a index.html.
+try {
+ const params=new URLSearchParams(location.search);
+ const invitation=(params.get('room')||'').trim().toUpperCase();
+ const valid=/^PEKY[A-HJ-NP-Z2-9]{5}$/.test(invitation);
+ if(!valid&&!sessionStorage.getItem('peky_club_access')&&!params.has('preview')) location.replace('index.html');
+} catch(e) {console.warn('Sesión local no disponible:',e);}
+</script>
 <script type="module" src="ludo.js"></script></body></html>
